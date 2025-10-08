@@ -4,7 +4,6 @@ Closes ZOHO-123. What/why in 2-3 lines.
 ## Scope
 - Services/Modules touched:
 - DB migrations: yes/no (script id)
-- Feature flag: name + default state
 - Backward compatibility: yes/no
 
 ## Testing
@@ -18,7 +17,7 @@ Closes ZOHO-123. What/why in 2-3 lines.
 - Config/secret changes:
 
 ## Checklist
-- [ ] AC met
+- [ ] Acceptance Criteria met
 - [ ] API/Swagger updated
 - [ ] Telemetry (logs/metrics/traces)
 - [ ] Docs/Changelog updated
