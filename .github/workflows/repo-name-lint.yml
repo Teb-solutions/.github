@@ -15,7 +15,7 @@ jobs:
         with:
           github-token: ${{ secrets.ORG_PAT }}  # org-scoped PAT or GitHub App token
           script: |
-            const org = 'TEBS';
+            const org = 'Teb-solutions';
             // Strict naming:
             // product-context-layer[-tech]
             // layer: api|ui|worker|infra
