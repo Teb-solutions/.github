@@ -24,6 +24,14 @@ jobs:
             const NAME_RE = /^([a-z0-9]+)-([a-z0-9]+)-(api|ui|firmware|worker|infra)(?:-(dotnet|react|angular|python|java|terraform))?$/;
       
             const MAX_LEN = 40;
+
+            // --- CONFIG: throttle + sharding ---
+            const MAX_CREATES_PER_RUN = 40;       // hard cap per run
+            const BASE_DELAY_MS = 3000;           // ~1 create / 3s
+            const SHARDS = 3;                     // split the org across 3 runs/day
+            const SHARD = parseInt(process.env.SHARD_INDEX || '0', 10); // pass 0..SHARDS-1 via matrix/env
+            // -----------------------------------
+      
             const ISSUE_TITLE = 'Repo name violates TEBS convention';
             const ISSUE_BODY = [
               'Expected: `product-context-layer[-tech]` (kebab-case, ≤40 chars).',
@@ -36,25 +44,67 @@ jobs:
               '',
               'Please rename in **Settings → Rename** and close this issue.'
             ].join('\n');
+
+            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
       
-            const repos = await github.paginate(github.rest.repos.listForOrg, { org, per_page: 100 });
+            // Simple stable shard function: hash repo name and mod by SHARDS
+            const shardOf = (name) => {
+              let h = 0; for (let i=0;i<name.length;i++) h = (h*31 + name.charCodeAt(i)) >>> 0;
+              return h % SHARDS;
+            };
+            
+            // List repos (App token: list repos accessible to installation; PAT: listForOrg)
+            let repos;
+            if (github.rest.apps?.listReposAccessibleToInstallation) {
+              const all = await github.paginate(github.rest.apps.listReposAccessibleToInstallation, { per_page: 100 });
+              repos = all.data.filter(r => r.owner.login.toLowerCase() === org.toLowerCase());
+            } else {
+              repos = await github.paginate(github.rest.repos.listForOrg, { org, per_page: 100 });
+            }
       
-            for (const r of repos) {
-              if (r.archived || r.disabled) continue;
+            // Filter to our shard and to violations
+            const candidates = repos
+              .filter(r => !r.archived && !r.disabled)
+              .filter(r => shardOf(r.name) === SHARD)
+              .filter(r => !(NAME_RE.test(r.name) && r.name.length <= MAX_LEN));
       
-              const ok = NAME_RE.test(r.name) && r.name.length <= MAX_LEN;
+            let created = 0;
+            for (const r of candidates) {
+              if (created >= MAX_CREATES_PER_RUN) break;
       
-              if (ok) continue;
-      
-              // Avoid duplicates
+              // skip if an open issue already exists
               const { data: issues } = await github.rest.issues.listForRepo({
                 owner: org, repo: r.name, state: 'open', per_page: 100
               });
               if (issues.some(i => i.title === ISSUE_TITLE)) continue;
       
-              await github.rest.issues.create({
-                owner: org, repo: r.name,
-                title: ISSUE_TITLE,
-                body: `${ISSUE_BODY}\n\n**Current name:** \`${r.name}\``
-              });
+              // Throttled create with backoff on secondary limit
+              let attempt = 0;
+              while (true) {
+                try {
+                  await github.rest.issues.create({
+                    owner: org, repo: r.name, title: TITLE,
+                    body: `${ISSUE_BODY}\n\n**Current name:** \`${r.name}\``
+                  });
+                  created += 1;
+                  break;
+                } catch (e) {
+                  const status = e?.status || e?.response?.status;
+                  const isSecondary = status === 403 && /secondary rate limit/i.test(String(e?.message));
+                  if (!isSecondary) throw e;
+      
+                  // exponential backoff with jitter; honor Retry-After if present
+                  const retryAfter = Number(e?.response?.headers?.['retry-after']);
+                  const backoff = retryAfter
+                    ? retryAfter * 1000
+                    : Math.min(60000, (2 ** attempt) * 1000) + Math.floor(Math.random() * 1000);
+                  attempt += 1;
+                  await sleep(backoff);
+                }
+              }
+      
+              // steady pacing between creates
+              await sleep(BASE_DELAY_MS + Math.floor(Math.random() * 500));
             }
+      
+            core.info(`Open-issue operations created: ${created}`);
