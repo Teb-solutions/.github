@@ -55,12 +55,7 @@ jobs:
             
             // List repos (App token: list repos accessible to installation; PAT: listForOrg)
             let repos;
-            if (github.rest.apps?.listReposAccessibleToInstallation) {
-              const all = await github.paginate(github.rest.apps.listReposAccessibleToInstallation, { per_page: 100 });
-              repos = all.data.filter(r => r.owner.login.toLowerCase() === org.toLowerCase());
-            } else {
-              repos = await github.paginate(github.rest.repos.listForOrg, { org, per_page: 100 });
-            }
+            repos = await github.paginate(github.rest.repos.listForOrg, { org, per_page: 100 });
       
             // Filter to our shard and to violations
             const candidates = repos
