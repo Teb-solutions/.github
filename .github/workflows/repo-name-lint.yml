@@ -78,7 +78,7 @@ jobs:
               while (true) {
                 try {
                   await github.rest.issues.create({
-                    owner: org, repo: r.name, title: TITLE,
+                    owner: org, repo: r.name, title: ISSUE_TITLE,
                     body: `${ISSUE_BODY}\n\n**Current name:** \`${r.name}\``
                   });
                   created += 1;
